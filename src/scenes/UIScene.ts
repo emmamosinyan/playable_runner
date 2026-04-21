@@ -14,7 +14,7 @@ const C = {
   overlay: 0x000000,
 } as const;
 
-const FONT     = "'Orbitron', 'Arial Black', sans-serif";
+const FONT     = "'Arial Black', sans-serif";
 const FONT_ALT = "'Arial Black', sans-serif";
 
 function txt(
