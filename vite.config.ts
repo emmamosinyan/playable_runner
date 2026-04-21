@@ -8,21 +8,33 @@
 //   footer.webp        47 KB
 //   Total assets      ~2.1 MB → ~2.8 MB base64-encoded
 //   Phaser 3 bundle   ~1.4 MB (minified)
-//   Actual dist/index.html   ~4.1 MB  (under 5 MB limit)
-import { defineConfig } from "vite";
+//   Actual dist/index.html   ~3.9 MB  (under 5 MB limit)
+import { defineConfig, Plugin } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
-export default defineConfig({
-  plugins: [viteSingleFile()],
-  build: {
-    target: "esnext",
-    assetsInlineLimit: 10_000_000,
-    chunkSizeWarningLimit: 10_000_000,
-    cssCodeSplit: false,
-    rollupOptions: {
-      output: {
-        inlineDynamicImports: true,
+export default defineConfig(async () => {
+  const analyze = process.env.ANALYZE === "true";
+  const extraPlugins: Plugin[] = [];
+
+  if (analyze) {
+    const { visualizer } = await import("rollup-plugin-visualizer");
+    extraPlugins.push(
+      visualizer({ open: true, filename: "dist/stats.html" }) as Plugin,
+    );
+  }
+
+  return {
+    plugins: [viteSingleFile(), ...extraPlugins],
+    build: {
+      target: "esnext",
+      assetsInlineLimit: 10_000_000,
+      chunkSizeWarningLimit: 10_000_000,
+      cssCodeSplit: false,
+      rollupOptions: {
+        output: {
+          inlineDynamicImports: true,
+        },
       },
     },
-  },
+  };
 });
