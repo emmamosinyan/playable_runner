@@ -45,13 +45,25 @@ export class UIScene extends Phaser.Scene {
   private comboVisible    = false;
 
   // Start screen
-  private startGroup!:  Phaser.GameObjects.Container;
+  private startGroup!:    Phaser.GameObjects.Container;
+  private startOverlay!:  Phaser.GameObjects.Rectangle;
+  private startTitle!:    Phaser.GameObjects.Text;
+  private startGlow!:     Phaser.GameObjects.Text;
+  private startTapLabel!: Phaser.GameObjects.Text;
+  private startArrow!:    Phaser.GameObjects.Text;
+  private startHint!:     Phaser.GameObjects.Text;
 
   // Game-over (dynamic objects, created on each game-over)
   private gameOverObjects: Phaser.GameObjects.GameObject[] = [];
+  private gameOverGfx:     Phaser.GameObjects.Graphics | null = null;
+  private gameOverTexts:   Phaser.GameObjects.Text[] = [];
+  private gameOverBtn:     Phaser.GameObjects.Container | null = null;
 
   // Win screen (dynamic objects, created on each win)
   private winObjects: Phaser.GameObjects.GameObject[] = [];
+  private winGfx:     Phaser.GameObjects.Graphics | null = null;
+  private winTexts:   Phaser.GameObjects.Text[] = [];
+  private winBtn:     Phaser.GameObjects.Container | null = null;
   private confettiEmitters: Phaser.GameObjects.Particles.ParticleEmitter[] = [];
 
   // Footer
@@ -87,6 +99,12 @@ export class UIScene extends Phaser.Scene {
     this.scale.on("resize", (gameSize: Phaser.Structs.Size) => {
       const W = gameSize.width;
       const H = gameSize.height;
+
+      if (!W || !H || W < 50 || H < 50) return;
+
+      // Force camera to cover new screen size
+      this.cameras.main.setViewport(0, 0, W, H);
+      this.cameras.main.setSize(W, H);
 
       // Hearts — redraw at same position
       if (this.heartGraphics) {
@@ -127,6 +145,37 @@ export class UIScene extends Phaser.Scene {
         });
       } else {
         this.repositionDownloadButton();
+      }
+
+      // Reposition start screen elements if visible
+      if (this.startGroup?.visible) {
+        const cx = W / 2;
+        const cy = H / 2;
+        this.startOverlay?.setSize(W, H);
+        const titleSize = Math.min(Math.round(W * 0.10), 52);
+        const tapSize   = Math.min(Math.round(W * 0.07), 32);
+        this.startTitle?.setFontSize(`${titleSize}px`);
+        this.startTapLabel?.setFontSize(`${tapSize}px`);
+        this.startTitle?.setPosition(cx, cy - H * 0.18);
+        this.startGlow?.setPosition(cx, cy - H * 0.02);
+        this.startTapLabel?.setPosition(cx, cy + H * 0.12);
+        this.startArrow?.setPosition(cx, cy + H * 0.23);
+        this.startHint?.setPosition(cx, cy + H * 0.35);
+      }
+      if (this.gameOverGfx?.active) {
+        this.drawFullOverlay(this.gameOverGfx, 0x000000, 0.55);
+        const cx = W / 2; const cy = H / 2;
+        this.gameOverTexts[0]?.setPosition(cx, cy - 100);
+        this.gameOverTexts[1]?.setPosition(cx, cy - 40);
+        this.gameOverTexts[2]?.setPosition(cx, cy + 10);
+        this.gameOverBtn?.setPosition(cx, cy + 80);
+      }
+      if (this.winGfx?.active) {
+        this.drawFullOverlay(this.winGfx, 0x000000, 0.6);
+        const cx = W / 2; const cy = H / 2;
+        this.winTexts[0]?.setPosition(cx, cy - 80);
+        this.winTexts[1]?.setPosition(cx, cy - 10);
+        this.winBtn?.setPosition(cx, cy + 70);
       }
     });
   }
@@ -313,30 +362,26 @@ export class UIScene extends Phaser.Scene {
     const cx = W / 2;
     const cy = H / 2;
 
-    // Dark gradient overlay
-    const overlay = this.add.graphics();
-    overlay.fillGradientStyle(0x000000, 0x000000, 0x000a1a, 0x000a1a, 0.55);
-    overlay.fillRect(-cx, -cy, W, H);
+    const overlay = this.add.rectangle(0, 0, W, H, 0x000a1a, 0.55)
+      .setOrigin(0, 0);
 
-    // Title
-    const title = this.add.text(0, -H * 0.18, "PLAYABLE\nRUNNER", txt({
-      fontSize:        "72px",
+    const titleSize = Math.min(Math.round(W * 0.10), 52);
+    const title = this.add.text(cx, cy - H * 0.18, "PLAYABLE\nRUNNER", txt({
+      fontSize:        `${titleSize}px`,
       color:           C.cyan,
       strokeThickness: 8,
       align:           "center",
     })).setOrigin(0.5);
 
-    // Subtitle glow strip
-    const glow = this.add.text(0, -H * 0.02, "infinite runner", {
+    const glow = this.add.text(cx, cy - H * 0.02, "infinite runner", {
       fontFamily:      FONT_ALT,
       fontSize:        "18px",
       color:           C.dim,
       letterSpacing:   6,
     }).setOrigin(0.5);
 
-    // TAP TO START
-    const tapLabel = this.add.text(0, H * 0.12, "TAP TO START", txt({
-      fontSize:        "40px",
+    const tapLabel = this.add.text(cx, cy + H * 0.12, "TAP TO START", txt({
+      fontSize:        `${Math.min(Math.round(W * 0.07), 32)}px`,
       color:           C.gold,
       strokeThickness: 6,
     })).setOrigin(0.5);
@@ -350,8 +395,7 @@ export class UIScene extends Phaser.Scene {
       ease:     "Sine.easeInOut",
     });
 
-    // Bouncing arrow
-    const arrow = this.add.text(0, H * 0.23, "▼", txt({
+    const arrow = this.add.text(cx, cy + H * 0.23, "▼", txt({
       fontSize:        "34px",
       color:           C.white,
       strokeThickness: 3,
@@ -359,21 +403,27 @@ export class UIScene extends Phaser.Scene {
 
     this.tweens.add({
       targets:  arrow,
-      y:        H * 0.23 + 14,
+      y:        cy + H * 0.23 + 14,
       duration: 520,
       yoyo:     true,
       repeat:   -1,
       ease:     "Sine.easeInOut",
     });
 
-    // Controls hint
-    const hint = this.add.text(0, H * 0.35, "tap / click  or  SPACE to jump", {
+    const hint = this.add.text(cx, cy + H * 0.35, "tap / click  or  SPACE to jump", {
       fontFamily: FONT_ALT,
       fontSize:   "17px",
       color:      C.dim,
     }).setOrigin(0.5);
 
-    this.startGroup = this.add.container(cx, cy, [overlay, title, glow, tapLabel, arrow, hint]);
+    this.startOverlay  = overlay;
+    this.startTitle    = title;
+    this.startGlow     = glow;
+    this.startTapLabel = tapLabel;
+    this.startArrow    = arrow;
+    this.startHint     = hint;
+
+    this.startGroup = this.add.container(0, 0, [overlay, title, glow, tapLabel, arrow, hint]);
   }
 
 
@@ -530,6 +580,20 @@ export class UIScene extends Phaser.Scene {
     });
   }
 
+  // ── Overlay helper ────────────────────────────────────────────────────────
+
+  private drawFullOverlay(
+    gfx: Phaser.GameObjects.Graphics,
+    color: number,
+    alpha: number,
+  ): void {
+    const W = this.scale.width;
+    const H = this.scale.height;
+    gfx.clear();
+    gfx.fillStyle(color, alpha);
+    gfx.fillRect(0, 0, W, H);
+  }
+
   // ── Show screens ──────────────────────────────────────────────────────────
 
   private showGameOverScreen(payload: ResultPayload): void {
@@ -538,13 +602,15 @@ export class UIScene extends Phaser.Scene {
     const cx = W / 2;
     const cy = H / 2;
 
-    const overlay = this.add.rectangle(cx, cy, W, H, 0x000000, 0.55)
-      .setDepth(60).setScrollFactor(0);
-    overlay.removeInteractive();
+    const overlay = this.add.graphics()
+      .setDepth(60)
+      .setScrollFactor(0);
+    this.drawFullOverlay(overlay, 0x000000, 0.55);
+    this.gameOverGfx = overlay;
 
     const title = this.add.text(cx, cy - 100, "You didn't make it!", {
       fontFamily:      "Arial Black, sans-serif",
-      fontSize:        "42px",
+      fontSize:        `${Math.min(Math.round(W * 0.07), 38)}px`,
       color:           "#ffffff",
       stroke:          "#000000",
       strokeThickness: 6,
@@ -553,7 +619,7 @@ export class UIScene extends Phaser.Scene {
 
     const sub = this.add.text(cx, cy - 40, "Try again on the app", {
       fontFamily:      "Arial, sans-serif",
-      fontSize:        "24px",
+      fontSize:        `${Math.min(Math.round(W * 0.045), 22)}px`,
       color:           "#cccccc",
       stroke:          "#000000",
       strokeThickness: 3,
@@ -562,7 +628,7 @@ export class UIScene extends Phaser.Scene {
 
     const coinMsg = this.add.text(cx, cy + 10, `Coins collected: ${payload.coins}`, {
       fontFamily:      "Arial, sans-serif",
-      fontSize:        "22px",
+      fontSize:        `${Math.min(Math.round(W * 0.04), 20)}px`,
       color:           "#FFD700",
       stroke:          "#000000",
       strokeThickness: 3,
@@ -570,7 +636,10 @@ export class UIScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(61);
 
     const installBtn = this.makeInstallButton(cx, cy + 80);
+
     this.gameOverObjects = [overlay, title, sub, coinMsg, installBtn];
+    this.gameOverTexts   = [title, sub, coinMsg];
+    this.gameOverBtn     = installBtn;
   }
 
   private showWin(payload: ResultPayload): void {
@@ -579,14 +648,15 @@ export class UIScene extends Phaser.Scene {
     const cx = W / 2;
     const cy = H / 2;
 
-    const overlay = this.add.rectangle(cx, cy, W, H, 0x000000, 0.6)
+    const overlay = this.add.graphics()
       .setDepth(60)
       .setScrollFactor(0);
-    overlay.removeInteractive();
+    this.drawFullOverlay(overlay, 0x000000, 0.6);
+    this.winGfx = overlay;
 
     const title = this.add.text(cx, cy - 80, "Congratulations! 🎉", {
       fontFamily:      "Arial Black, sans-serif",
-      fontSize:        "40px",
+      fontSize:        `${Math.min(Math.round(W * 0.07), 36)}px`,
       color:           "#FFD700",
       stroke:          "#000000",
       strokeThickness: 6,
@@ -603,7 +673,7 @@ export class UIScene extends Phaser.Scene {
 
     const coinMsg = this.add.text(cx, cy - 10, `Coins collected: ${payload.coins}`, {
       fontFamily:      "Arial, sans-serif",
-      fontSize:        "24px",
+      fontSize:        `${Math.min(Math.round(W * 0.04), 22)}px`,
       color:           "#FFD700",
       stroke:          "#000000",
       strokeThickness: 3,
@@ -612,23 +682,28 @@ export class UIScene extends Phaser.Scene {
 
     const installBtn = this.makeInstallButton(cx, cy + 70);
     this.burstConfetti(W, H);
+
     this.winObjects = [overlay, title, coinMsg, installBtn];
+    this.winTexts   = [title, coinMsg];
+    this.winBtn     = installBtn;
   }
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
   private onGameStarted(): void {
-    // Dismiss start screen
+    const targets = [
+      this.startOverlay, this.startTitle, this.startGlow,
+      this.startTapLabel, this.startArrow, this.startHint,
+    ].filter(Boolean);
+
     this.tweens.add({
-      targets:  this.startGroup,
+      targets,
       alpha:    0,
-      y:        this.startGroup.y - 50,
       duration: 380,
       ease:     "Quad.easeIn",
-      onComplete: () => this.startGroup.setVisible(false),
+      onComplete: () => this.startGroup?.setVisible(false),
     });
 
-    // Fade in HUD elements
     this.tweens.add({
       targets:  [this.coinIcon, this.coinText],
       alpha:    1,
@@ -705,8 +780,14 @@ export class UIScene extends Phaser.Scene {
   private restartGame(): void {
     this.gameOverObjects.forEach((o) => o.destroy());
     this.gameOverObjects = [];
+    this.gameOverGfx     = null;
+    this.gameOverTexts   = [];
+    this.gameOverBtn     = null;
     this.winObjects.forEach((o) => o.destroy());
     this.winObjects = [];
+    this.winGfx     = null;
+    this.winTexts   = [];
+    this.winBtn     = null;
     this.drawHearts(3);
     this.scene.stop("UIScene");
     this.scene.start("GameScene");

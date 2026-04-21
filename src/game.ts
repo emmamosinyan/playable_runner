@@ -23,4 +23,19 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [BootScene, GameScene, UIScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+window.addEventListener("orientationchange", () => {
+  setTimeout(() => {
+    game.scale.refresh();
+    game.scale.setGameSize(window.innerWidth, window.innerHeight);
+  }, 150);
+  setTimeout(() => {
+    game.scale.refresh();
+    game.scale.setGameSize(window.innerWidth, window.innerHeight);
+  }, 400);
+});
+
+window.addEventListener("resize", () => {
+  game.scale.refresh();
+});

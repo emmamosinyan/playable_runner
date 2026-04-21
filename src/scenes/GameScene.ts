@@ -138,6 +138,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    if (this.player && this.player.y > this.groundY + 50) {
+      this.player.setY(this.groundY - 10);
+      (this.player.body as Phaser.Physics.Arcade.Body).setVelocityY(0);
+    }
+
     this.player.tick();
 
     // Finish line physics runs even after game ends (break animation)
@@ -154,8 +159,8 @@ export class GameScene extends Phaser.Scene {
     this.bg2.x -= dx;
     const dW1 = (this.bg1.getData("displayW") as number) ?? W;
     const dW2 = (this.bg2.getData("displayW") as number) ?? W;
-    if (this.bg1.x + dW1 <= 0) this.bg1.x = this.bg2.x + dW2;
-    if (this.bg2.x + dW2 <= 0) this.bg2.x = this.bg1.x + dW1;
+    if (this.bg1.x + dW1 <= 0) this.bg1.setX(this.bg2.x + dW2);
+    if (this.bg2.x + dW2 <= 0) this.bg2.setX(this.bg1.x + dW1);
 
     this.obstacles.setSpeed(this.gameSpeed);
     this.obstacles.update(delta);
@@ -383,6 +388,9 @@ export class GameScene extends Phaser.Scene {
       .refreshBody()
       .setVisible(false);
 
+    this.scale.on("resize", (gameSize: Phaser.Structs.Size) => {
+      this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height);
+    });
     this.scale.on("resize", this.onResize, this);
   }
 
@@ -399,16 +407,38 @@ export class GameScene extends Phaser.Scene {
     const W = gameSize.width;
     const H = gameSize.height;
 
+    if (!W || !H || W < 100 || H < 100) return;
+
+    this.physics.world.pause();
+
+    // Resize physics world bounds
+    this.physics.world.setBounds(0, 0, W, H * 10);
+
+    // Background
     this.scaleBg(this.bg1, W, H);
     this.scaleBg(this.bg2, W, H);
     const dW = (this.bg1.getData("displayW") as number) ?? W;
-    this.bg2.setX(this.bg1.x + dW);
+    this.bg1.setX(0);
+    this.bg2.setX(dW);
 
+    // Ground
     const groundY = Math.round(H * GROUND_FRAC);
     this.groundBodySprite.setPosition(W / 2, groundY);
     this.groundBodySprite.setDisplaySize(W, 20);
     this.groundBodySprite.refreshBody();
 
-    if (this.player) this.player.setX(Math.round(W * 0.15));
+    // Player
+    if (this.player?.active) {
+      this.player.rescale();
+      this.player.setX(Math.round(W * 0.15));
+    }
+
+    // Resume physics after two frames
+    this.time.delayedCall(32, () => {
+      if (this.groundBodySprite?.active) {
+        this.groundBodySprite.refreshBody();
+      }
+      this.physics.world.resume();
+    });
   }
 }

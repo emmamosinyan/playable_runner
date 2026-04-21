@@ -1,8 +1,7 @@
 import Phaser from "phaser";
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const COIN_DISPLAY  = 90;  // rendered px (square)
-const POOL_MAX      = 15;
+const POOL_MAX = 15;
 
 interface ActiveCoin {
   sprite:    Phaser.Physics.Arcade.Sprite;
@@ -13,8 +12,15 @@ interface ActiveCoin {
 export class CoinManager {
   private readonly scene:   Phaser.Scene;
   private readonly group:   Phaser.Physics.Arcade.StaticGroup;
-  private readonly groundY: number;
-  private readonly onMiss:  () => void; // called when a coin exits off-screen uncollected
+  private readonly onMiss: () => void; // called when a coin exits off-screen uncollected
+
+  private get groundY(): number {
+    return Math.round(this.scene.scale.height * 0.82);
+  }
+
+  private get coinDisplay(): number {
+    return Math.round(this.scene.scale.height * 0.07);
+  }
 
   private speed           = 300;
   private frozen          = false;
@@ -23,11 +29,10 @@ export class CoinManager {
   private readonly active: ActiveCoin[] = [];
   private readonly pool:   Phaser.Physics.Arcade.Sprite[] = [];
 
-  constructor(scene: Phaser.Scene, groundY: number, onMiss: () => void) {
-    this.scene   = scene;
-    this.groundY = groundY;
-    this.onMiss  = onMiss;
-    this.group   = scene.physics.add.staticGroup();
+  constructor(scene: Phaser.Scene, _groundY: number, onMiss: () => void) {
+    this.scene  = scene;
+    this.onMiss = onMiss;
+    this.group  = scene.physics.add.staticGroup();
     this.ensureAnimation();
   }
 
@@ -104,7 +109,7 @@ export class CoinManager {
 
   spawnArc(centerX: number, groundY: number): void {
     const count     = 5;
-    const coinSize  = COIN_DISPLAY;
+    const coinSize  = this.coinDisplay;
     const gap       = 12;
     const spacing   = coinSize + gap;
     const arcWidth  = spacing * (count - 1);
@@ -121,10 +126,10 @@ export class CoinManager {
 
   private spawnCoinAt(x: number, y: number): void {
     const sprite = this.acquire();
-    sprite.setPosition(x, y).setDisplaySize(COIN_DISPLAY, COIN_DISPLAY);
+    sprite.setPosition(x, y).setDisplaySize(this.coinDisplay, this.coinDisplay);
 
     const body = sprite.body as Phaser.Physics.Arcade.StaticBody;
-    body.setSize(COIN_DISPLAY * 0.75, COIN_DISPLAY * 0.75);
+    body.setSize(this.coinDisplay * 0.75, this.coinDisplay * 0.75);
     body.reset(x, y);
     body.enable = true;
 

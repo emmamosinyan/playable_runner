@@ -17,10 +17,7 @@ interface VariantConfig {
 // "low" ≈ soccer ball on ground — player must jump over it
 // "mid" ≈ running opponent     — player must jump over it
 // Balls: static (frame 0 only); enemy: 8-frame running animation, dynamic body
-const VARIANTS: Record<ObstacleVariant, VariantConfig> = {
-  low: { texture: "ball",  w:  80, h:  80, yOffset: 0, frameCount: 1, animRate:  1 },
-  mid: { texture: "enemy", w: 148, h: 200, yOffset: 0, frameCount: 8, animRate: 10 },
-};
+// Sizes are calculated proportionally from screen height in the constructor.
 
 // Weighted selection: low 60 %, mid 40 %
 const WEIGHTS: ReadonlyArray<[ObstacleVariant, number]> = [
@@ -49,7 +46,20 @@ export class ObstacleManager {
   private readonly group: Phaser.Physics.Arcade.Group; // balls only
   /** Dynamic group — wire to physics.add.overlap in GameScene for enemy hits */
   public readonly enemyGroup: Phaser.Physics.Arcade.Group;
-  private readonly groundY: number;
+  private get groundY(): number {
+    return Math.round(this.scene.scale.height * 0.82);
+  }
+
+  private get variants(): Record<ObstacleVariant, VariantConfig> {
+    const H        = this.scene.scale.height;
+    const ballSize = Math.round(H * 0.09);
+    const enemyH   = Math.round(H * 0.22);
+    const enemyW   = Math.round(enemyH * 0.74);
+    return {
+      low: { texture: "ball",  w: ballSize, h: ballSize, yOffset: 0, frameCount: 1, animRate:  1 },
+      mid: { texture: "enemy", w: enemyW,   h: enemyH,   yOffset: 0, frameCount: 8, animRate: 10 },
+    };
+  }
 
   private coinManager: CoinManager | null = null;
 
@@ -69,21 +79,13 @@ export class ObstacleManager {
   private readonly activeEnemies: Phaser.Physics.Arcade.Sprite[] = [];
   private readonly enemyPool: Phaser.Physics.Arcade.Sprite[] = [];
 
-  constructor(scene: Phaser.Scene, groundY: number) {
+  constructor(scene: Phaser.Scene, _groundY: number) {
     this.scene = scene;
-    this.groundY = groundY;
     this.group = scene.physics.add.group();
     this.enemyGroup = scene.physics.add.group();
 
-    // Pool map covers only ball textures
-    const ballTextures = [
-      ...new Set(
-        Object.values(VARIANTS)
-          .filter((v) => v.texture !== "enemy")
-          .map((v) => v.texture),
-      ),
-    ];
-    this.ballPools = new Map(ballTextures.map((k) => [k, []]));
+    // Pool map covers only ball textures (enemy excluded)
+    this.ballPools = new Map([["ball", []]]);
 
     this.createAnimations();
     this.scheduleNormal();
@@ -212,7 +214,7 @@ export class ObstacleManager {
   // ── Spawn one obstacle ────────────────────────────────────────────────────
 
   private spawnOne(variant: ObstacleVariant): void {
-    const cfg = VARIANTS[variant];
+    const cfg = this.variants[variant];
     const spawnX = this.scene.scale.width + 100;
     const spawnY = this.groundY + cfg.yOffset - cfg.h / 2;
 

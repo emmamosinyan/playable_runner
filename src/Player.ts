@@ -108,6 +108,21 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.play("player-stand");
   }
 
+  // ── Resize ────────────────────────────────────────────────────────────────
+
+  public rescale(): void {
+    const H     = this.scene.scale.height;
+    const scale = (H * 0.22) / 188;
+    this.setScale(scale);
+
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    body.setSize(90, 165);
+    body.setOffset(32, 20);
+
+    const groundY = Math.round(H * 0.82);
+    this.setY(groundY - Math.round(200 * scale) + 5);
+  }
+
   // ── Lifecycle (called by GameScene.update) ────────────────────────────────
 
   tick(): void {
