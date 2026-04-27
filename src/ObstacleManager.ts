@@ -191,7 +191,7 @@ export class ObstacleManager {
   }
 
   private scrollEnemies(delta: number): void {
-    const dx = this.speed * 1.7 * (delta / 1000);
+    const dx = this.speed * 1.3 * (delta / 1000);
     for (let i = this.activeEnemies.length - 1; i >= 0; i--) {
       const sprite = this.activeEnemies[i];
       const newX   = sprite.x - dx;
