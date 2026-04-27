@@ -14,7 +14,7 @@ import footerUrl      from "../assets/footer.webp?url";
 //                        stand 0-3 | run 8-15 | jump 16-23 | damage 24-27
 // balls.png   1408×768   5 cols × 2 rows  → frameWidth=281  frameHeight=384  (frame 0 static)
 // coins.png   1408×768   5 cols × 2 rows  → frameWidth=281  frameHeight=384  (8 frames spin)
-// enemy.png   1400×752   4 cols × 2 rows  → frameWidth=350  frameHeight=376  (8 frames run)
+// enemy.png   1380×850   4 cols × 2 rows  → frameWidth=345  frameHeight=425  (8 frames run)
 
 export class BootScene extends Phaser.Scene {
   private barBg!:     Phaser.GameObjects.Graphics;
@@ -41,7 +41,7 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 281, frameHeight: 384,
     });
     this.load.spritesheet("enemy", enemyUrl, {
-      frameWidth: 350, frameHeight: 376,
+      frameWidth: 345, frameHeight: 425,
     });
 
     // ── Static images ─────────────────────────────────────────────────────

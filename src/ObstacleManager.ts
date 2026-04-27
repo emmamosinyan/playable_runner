@@ -27,10 +27,10 @@ const WEIGHTS: ReadonlyArray<[ObstacleVariant, number]> = [
 const TOTAL_WEIGHT = WEIGHTS.reduce((s, [, w]) => s + w, 0);
 
 const POOL_MAX = 10;
-const MIN_GAP = 400;
-const MIN_GAP_LO = 250;
-const COMBO_GAP = 220;
-const COMBO_PROB = 0.25;
+const MIN_GAP    = 800;
+const MIN_GAP_LO = 600;
+const COMBO_GAP  = 700;
+const COMBO_PROB = 0;   // combos disabled — prevents two obstacles spawning close
 
 // ── Internal record ───────────────────────────────────────────────────────────
 
@@ -53,8 +53,8 @@ export class ObstacleManager {
   private get variants(): Record<ObstacleVariant, VariantConfig> {
     const H        = this.scene.scale.height;
     const ballSize = Math.round(H * 0.09);
-    const enemyH   = Math.round(H * 0.22);
-    const enemyW   = Math.round(enemyH * 0.74);
+    const enemyH   = Math.round(H * 0.25);
+    const enemyW   = Math.round(enemyH * 0.65);
     return {
       low: { texture: "ball",  w: ballSize, h: ballSize, yOffset: 0, frameCount: 1, animRate:  1 },
       mid: { texture: "enemy", w: enemyW,   h: enemyH,   yOffset: 0, frameCount: 8, animRate: 10 },
@@ -329,12 +329,10 @@ export class ObstacleManager {
   private acquireEnemy(): Phaser.Physics.Arcade.Sprite {
     if (this.enemyPool.length > 0) {
       const sprite = this.enemyPool.pop()!;
-      sprite.setFlipX(false);
       (sprite.body as Phaser.Physics.Arcade.Body).enable = true;
       return sprite;
     }
     const sprite = this.scene.physics.add.sprite(-200, -200, "enemy", 0);
-    sprite.setFlipX(false);
     this.enemyGroup.add(sprite);
     return sprite;
   }
@@ -372,7 +370,7 @@ export class ObstacleManager {
       anims.create({
         key: "enemy-run",
         frames: anims.generateFrameNumbers("enemy", { start: 0, end: 7 }),
-        frameRate: 10,
+        frameRate: 8,
         repeat: -1,
       });
     }

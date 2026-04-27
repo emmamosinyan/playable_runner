@@ -5,10 +5,10 @@ import { CoinManager } from "../CoinManager";
 import { FinishLine } from "../FinishLine";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const SPEED_INITIAL  = 300;
-const SPEED_MAX      = 600;
-const SPEED_STEP     =   5;
-const SPEED_TICK_MS  = 3000;
+const SPEED_INITIAL  = 400;
+const SPEED_MAX      = 830;
+const SPEED_STEP     =  10;
+const SPEED_TICK_MS  = 2000;
 const PX_PER_METER   =  100;
 const LS_BEST_DIST   = "runner_best_distance";
 const LS_BEST_COINS  = "runner_best_coins";
@@ -78,6 +78,10 @@ export class GameScene extends Phaser.Scene {
   // Damage gate — false during invincibility window and after game ends
   private damageEnabled = true;
 
+  // Background music
+  private musicNodes:   AudioNode[] = [];
+  private musicPlaying              = false;
+
   // Scoring
   private coinScore      = 0;
   private coinCombo      = 0;
@@ -141,6 +145,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.launch("UIScene");
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.stopMusic();
       this.obstacles.destroy();
       this.coins.destroy();
       this.finishLine?.destroy();
@@ -209,6 +214,7 @@ export class GameScene extends Phaser.Scene {
     if (this.gameState === "dead" || this.gameState === "finished") return;
     this.damageEnabled = false;
     this.gameState = "dead";
+    this.stopMusic();
     this.speedTimer.paused = true;
     this.obstacles.freeze();
     this.coins.freeze();
@@ -227,6 +233,7 @@ export class GameScene extends Phaser.Scene {
   triggerFinish(): void {
     if (this.gameState === "finished" || this.gameState === "dead") return;
     this.gameState = "finished";
+    this.stopMusic();
     this.speedTimer.paused = true;
     this.obstacles.freeze();
     this.coins.freeze();
@@ -330,6 +337,132 @@ export class GameScene extends Phaser.Scene {
     return { distance, coins, bestDistance: this.bestDistance, bestCoins: this.bestCoins, isNewBest };
   }
 
+  // ── Procedural background music ──────────────────────────────────────────
+
+  private startMusic(): void {
+    if (this.musicPlaying) return;
+    if (!(this.sound instanceof Phaser.Sound.WebAudioSoundManager)) return;
+
+    this.musicPlaying = true;
+    const ctx = this.sound.context;
+
+    // ── Master gain ───────────────────────────────────────────────────────
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.18, ctx.currentTime);
+    masterGain.connect(ctx.destination);
+    this.musicNodes.push(masterGain);
+
+    // ── Reverb via convolver ──────────────────────────────────────────────
+    const convolver = ctx.createConvolver();
+    const reverbBuf = ctx.createBuffer(2, ctx.sampleRate * 1.5, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = reverbBuf.getChannelData(ch);
+      for (let i = 0; i < data.length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3);
+      }
+    }
+    convolver.buffer = reverbBuf;
+    convolver.connect(masterGain);
+    this.musicNodes.push(convolver);
+
+    // ── Melody — C major pentatonic ───────────────────────────────────────
+    // Notes: C5, D5, E5, G5, A5
+    const notes   = [523.25, 587.33, 659.25, 783.99, 880.00];
+    const pattern = [0, 2, 4, 2, 1, 3, 4, 3, 0, 2, 1, 0, 4, 2, 3, 1];
+    const bpm     = 128;
+    const beatDur = 60 / bpm;
+
+    const scheduleAhead = 0.1;
+    let nextNoteTime    = ctx.currentTime + 0.1;
+    let noteIndex       = 0;
+
+    const scheduleMelody = (): void => {
+      if (!this.musicPlaying) return;
+      while (nextNoteTime < ctx.currentTime + scheduleAhead) {
+        const freq = notes[pattern[noteIndex % pattern.length]];
+        noteIndex++;
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, nextNoteTime);
+        gain.gain.setValueAtTime(0, nextNoteTime);
+        gain.gain.linearRampToValueAtTime(0.4, nextNoteTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + beatDur * 0.7);
+        osc.connect(gain);
+        gain.connect(convolver);
+        gain.connect(masterGain);
+        osc.start(nextNoteTime);
+        osc.stop(nextNoteTime + beatDur * 0.8);
+        nextNoteTime += beatDur * 0.5;
+      }
+      this.time.delayedCall(50, scheduleMelody);
+    };
+    scheduleMelody();
+
+    // ── Bass line ─────────────────────────────────────────────────────────
+    const bassNotes = [130.81, 164.81, 196.00, 130.81];
+    let   bassIdx   = 0;
+    let   nextBassT = ctx.currentTime + 0.1;
+
+    const scheduleBass = (): void => {
+      if (!this.musicPlaying) return;
+      while (nextBassT < ctx.currentTime + scheduleAhead) {
+        const freq = bassNotes[bassIdx % bassNotes.length];
+        bassIdx++;
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(freq, nextBassT);
+        gain.gain.setValueAtTime(0, nextBassT);
+        gain.gain.linearRampToValueAtTime(0.15, nextBassT + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, nextBassT + beatDur * 1.8);
+        osc.connect(gain);
+        gain.connect(masterGain);
+        osc.start(nextBassT);
+        osc.stop(nextBassT + beatDur * 2);
+        nextBassT += beatDur * 2;
+      }
+      this.time.delayedCall(50, scheduleBass);
+    };
+    scheduleBass();
+
+    // ── Hi-hat percussion ─────────────────────────────────────────────────
+    let nextHatT = ctx.currentTime + 0.1;
+
+    const scheduleHat = (): void => {
+      if (!this.musicPlaying) return;
+      while (nextHatT < ctx.currentTime + scheduleAhead) {
+        const bufSize = Math.floor(ctx.sampleRate * 0.05);
+        const buf     = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+        const data    = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+
+        const src    = ctx.createBufferSource();
+        const filter = ctx.createBiquadFilter();
+        const gain   = ctx.createGain();
+        src.buffer             = buf;
+        filter.type            = "highpass";
+        filter.frequency.value = 8000;
+        gain.gain.setValueAtTime(0.06, nextHatT);
+        gain.gain.exponentialRampToValueAtTime(0.001, nextHatT + 0.05);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(masterGain);
+        src.start(nextHatT);
+        nextHatT += beatDur * 0.5;
+      }
+      this.time.delayedCall(50, scheduleHat);
+    };
+    scheduleHat();
+  }
+
+  private stopMusic(): void {
+    this.musicPlaying = false;
+    // Setting the flag stops all scheduler delayedCall chains.
+    // Oscillators already scheduled will finish naturally at their stop time.
+    this.musicNodes = [];
+  }
+
   // ── Procedural coin sound ────────────────────────────────────────────────
 
   private playCoinSound(): void {
@@ -372,6 +505,7 @@ export class GameScene extends Phaser.Scene {
     this.gameState         = "playing";
     this.speedTimer.paused = false;
     this.player.startRunning();
+    this.startMusic();
     this.events.emit("game-started");
   }
 
