@@ -10,8 +10,8 @@ import footerLargeUrl from "../assets/footer_large.webp?url";
 import footerUrl      from "../assets/footer.webp?url";
 
 // ── Asset dimensions ─────────────────────────────────────────────────────
-// player.png  1408×768  loaded as image; frames registered manually in Player.ts
-//                       (rows have per-row left margins — 60/40/40/60 px)
+// player.png  1423×752   8 cols × 4 rows  → frameWidth=177  frameHeight=188
+//                        stand 0-3 | run 8-15 | jump 16-23 | damage 24-27
 // balls.png   1408×768   5 cols × 2 rows  → frameWidth=281  frameHeight=384  (frame 0 static)
 // coins.png   1408×768   5 cols × 2 rows  → frameWidth=281  frameHeight=384  (8 frames spin)
 // enemy.png   1400×752   4 cols × 2 rows  → frameWidth=350  frameHeight=376  (8 frames run)
@@ -27,9 +27,10 @@ export class BootScene extends Phaser.Scene {
     this.createLoadingUI();
     this.load.on("progress", (value: number) => this.setBarFill(value));
 
-    // ── Player: loaded as plain image; frames are registered manually in
-    //    Player.ts using exact pixel coordinates per row (variable margins)
-    this.load.image("player", playerUrl);
+    // ── Player: 1423×752, 8 cols × 4 rows ───────────────────────────────
+    this.load.spritesheet("player", playerUrl, {
+      frameWidth: 177, frameHeight: 189,
+    });
 
     // ── Other spritesheets ────────────────────────────────────────────────
     // ball: static obstacle — full spritesheet loaded so frame 0 is accessible

@@ -130,6 +130,24 @@ export class ObstacleManager {
     this.spawningEnabled = false;
   }
 
+  repositionAll(): void {
+    const gY = this.groundY;
+
+    for (const entry of this.activeBalls) {
+      const cfg  = this.variants.low;
+      const newY = gY - cfg.h / 2;
+      entry.sprite.setY(newY).setDisplaySize(cfg.w, cfg.h);
+      (entry.sprite.body as Phaser.Physics.Arcade.Body).reset(entry.sprite.x, newY);
+    }
+
+    for (const sprite of this.activeEnemies) {
+      const cfg  = this.variants.mid;
+      const newY = gY - cfg.h / 2;
+      sprite.setY(newY).setDisplaySize(cfg.w, cfg.h);
+      (sprite.body as Phaser.Physics.Arcade.Body).reset(sprite.x, newY);
+    }
+  }
+
   clearActive(): void {
     for (let i = this.activeBalls.length - 1; i >= 0; i--) {
       const entry = this.activeBalls[i];
@@ -176,10 +194,10 @@ export class ObstacleManager {
     const dx = this.speed * 1.7 * (delta / 1000);
     for (let i = this.activeEnemies.length - 1; i >= 0; i--) {
       const sprite = this.activeEnemies[i];
-
-      const newX = sprite.x - dx;
+      const newX   = sprite.x - dx;
       sprite.setX(newX);
-
+      // Sync body position — dynamic bodies must be explicitly reset
+      (sprite.body as Phaser.Physics.Arcade.Body).reset(newX, sprite.y);
       if (newX < -150) {
         this.activeEnemies.splice(i, 1);
         this.recycleEnemy(sprite);
@@ -226,18 +244,30 @@ export class ObstacleManager {
   }
 
   private spawnBall(cfg: VariantConfig, spawnX: number, spawnY: number): void {
+    // Calculate arc dimensions so ball and coins share the same center X,
+    // with both guaranteed to start off-screen.
+    const coinSize = this.coinManager
+      ? Math.round(this.scene.scale.height * 0.07)
+      : 0;
+    const spacing  = coinSize + 8;
+    const halfArc  = (spacing * 4) / 2; // (count-1) * spacing / 2
+    const screenW  = this.scene.scale.width;
+    const minX     = screenW + 30 + halfArc;
+    const adjX     = Math.max(spawnX, minX);
+    const adjY     = this.groundY - cfg.h / 2;
+
     const sprite = this.acquireBall(cfg.texture);
-    sprite.setPosition(spawnX, spawnY).setDisplaySize(cfg.w, cfg.h);
+    sprite.setPosition(adjX, adjY).setDisplaySize(cfg.w, cfg.h);
 
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     body.allowGravity = false;
     body.setSize(cfg.w * 0.8, cfg.h * 0.8);
-    body.reset(spawnX, spawnY);
+    body.reset(adjX, adjY);
     body.enable = true;
 
     sprite.setFrame(0);
 
-    this.coinManager?.spawnArc(spawnX, this.groundY);
+    this.coinManager?.spawnArc(adjX, this.groundY);
   }
 
   private spawnEnemy(cfg: VariantConfig, spawnX: number, spawnY: number): void {

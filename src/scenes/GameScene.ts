@@ -39,6 +39,8 @@ export interface CoinPayload {
   combo:      number;
   multiplier: number;
   earned:     number;
+  worldX:     number;
+  worldY:     number;
 }
 
 export interface ResultPayload {
@@ -69,6 +71,13 @@ export class GameScene extends Phaser.Scene {
   private finishLine:     FinishLine | null = null;
   private finishSpawned = false;
 
+  // Overlap colliders
+  private ballOverlap!:  Phaser.Physics.Arcade.Collider;
+  private enemyOverlap!: Phaser.Physics.Arcade.Collider;
+
+  // Damage gate — false during invincibility window and after game ends
+  private damageEnabled = true;
+
   // Scoring
   private coinScore      = 0;
   private coinCombo      = 0;
@@ -91,6 +100,7 @@ export class GameScene extends Phaser.Scene {
     this.comboMultiplier  = 1;
     this.finishLine       = null;
     this.finishSpawned    = false;
+    this.damageEnabled    = true;
 
     this.bestDistance = parseInt(localStorage.getItem(LS_BEST_DIST)  ?? "0", 10);
     this.bestCoins    = parseInt(localStorage.getItem(LS_BEST_COINS) ?? "0", 10);
@@ -102,7 +112,7 @@ export class GameScene extends Phaser.Scene {
     this.coins     = new CoinManager(this, this.groundY, () => this.onCoinMissed());
     this.obstacles.setCoinManager(this.coins);
 
-    this.physics.add.overlap(
+    this.ballOverlap = this.physics.add.overlap(
       this.player,
       this.obstacles.getGroup(),
       this.onObstacleOverlap,
@@ -110,7 +120,7 @@ export class GameScene extends Phaser.Scene {
       this,
     );
 
-    this.physics.add.overlap(
+    this.enemyOverlap = this.physics.add.overlap(
       this.player,
       this.obstacles.enemyGroup,
       this.onObstacleOverlap,
@@ -146,7 +156,10 @@ export class GameScene extends Phaser.Scene {
     this.player.tick();
 
     // Finish line physics runs even after game ends (break animation)
-    if (this.finishLine) this.finishLine.update(delta, this.gameSpeed);
+    if (this.finishLine) {
+      const speed = this.gameState === "playing" ? this.gameSpeed : 0;
+      this.finishLine.update(delta, speed);
+    }
 
     if (this.gameState !== "playing") return;
 
@@ -194,6 +207,7 @@ export class GameScene extends Phaser.Scene {
 
   triggerGameOver(): void {
     if (this.gameState === "dead" || this.gameState === "finished") return;
+    this.damageEnabled = false;
     this.gameState = "dead";
     this.speedTimer.paused = true;
     this.obstacles.freeze();
@@ -211,7 +225,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   triggerFinish(): void {
-    if (this.gameState === "finished") return;
+    if (this.gameState === "finished" || this.gameState === "dead") return;
     this.gameState = "finished";
     this.speedTimer.paused = true;
     this.obstacles.freeze();
@@ -235,26 +249,41 @@ export class GameScene extends Phaser.Scene {
 
   private onObstacleOverlap(): void {
     if (this.gameState !== "playing") return;
+    if (!this.damageEnabled) return;
+
+    // Immediately gate further damage for the invincibility window
+    this.damageEnabled = false;
 
     const isDead = this.player.takeDamage();
     this.events.emit("lives-update", this.player.getLives());
 
     if (isDead) {
       this.triggerGameOver();
-    } else {
-      this.cameras.main.shake(150, 0.008);
+      return;
     }
+
+    this.cameras.main.shake(150, 0.008);
+
+    // Re-open the damage gate after the full invincibility period
+    this.time.delayedCall(this.player.INVINCIBLE_MS, () => {
+      if (this.gameState === "playing") {
+        this.damageEnabled = true;
+      }
+    });
   }
 
   private onCoinOverlap(_player: ArcadeObj, coinObj: ArcadeObj): void {
     if (this.gameState !== "playing") return;
-    this.coins.collectCoin(coinObj as Phaser.Physics.Arcade.Sprite);
-    this.onCoinCollected();
+    const sprite = coinObj as Phaser.Physics.Arcade.Sprite;
+    const worldX = sprite.x;
+    const worldY = sprite.y;
+    this.coins.collectCoin(sprite);
+    this.onCoinCollected(worldX, worldY);
   }
 
   // ── Coin / combo logic ────────────────────────────────────────────────────
 
-  private onCoinCollected(): void {
+  private onCoinCollected(worldX = 0, worldY = 0): void {
     this.coinCombo++;
     this.comboMultiplier = this.coinCombo >= 3 ? 2 : 1;
 
@@ -268,6 +297,8 @@ export class GameScene extends Phaser.Scene {
       combo:      this.coinCombo,
       multiplier: this.comboMultiplier,
       earned,
+      worldX,
+      worldY,
     } satisfies CoinPayload);
   }
 
@@ -407,38 +438,44 @@ export class GameScene extends Phaser.Scene {
     const W = gameSize.width;
     const H = gameSize.height;
 
-    if (!W || !H || W < 100 || H < 100) return;
+    if (!W || !H || W < 50 || H < 50) return;
 
     this.physics.world.pause();
 
-    // Resize physics world bounds
-    this.physics.world.setBounds(0, 0, W, H * 10);
-
-    // Background
+    // 1. Background
     this.scaleBg(this.bg1, W, H);
     this.scaleBg(this.bg2, W, H);
     const dW = (this.bg1.getData("displayW") as number) ?? W;
     this.bg1.setX(0);
     this.bg2.setX(dW);
 
-    // Ground
+    // 2. Ground
     const groundY = Math.round(H * GROUND_FRAC);
     this.groundBodySprite.setPosition(W / 2, groundY);
     this.groundBodySprite.setDisplaySize(W, 20);
     this.groundBodySprite.refreshBody();
 
-    // Player
+    // 3. Player
     if (this.player?.active) {
       this.player.rescale();
       this.player.setX(Math.round(W * 0.15));
+      if (this.player.y > groundY + 20) {
+        this.player.setY(groundY - 10);
+        (this.player.body as Phaser.Physics.Arcade.Body).setVelocityY(0);
+      }
     }
 
-    // Resume physics after two frames
+    // 4. Reposition active obstacles and coins after ground is updated
+    this.obstacles?.repositionAll();
+    this.coins?.repositionAll();
+
+    // 5. Resume physics — second refresh ensures static bodies are registered
     this.time.delayedCall(32, () => {
-      if (this.groundBodySprite?.active) {
-        this.groundBodySprite.refreshBody();
-      }
+      this.groundBodySprite?.refreshBody();
       this.physics.world.resume();
+    });
+    this.time.delayedCall(200, () => {
+      if (this.physics.world.isPaused) this.physics.world.resume();
     });
   }
 }

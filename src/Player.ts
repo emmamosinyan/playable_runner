@@ -1,44 +1,18 @@
 import Phaser from "phaser";
 
 // ── Physics constants ─────────────────────────────────────────────────────────
-const GRAVITY       = 1200;
-const JUMP_VELOCITY = -700;
+const GRAVITY = 1200;
 
 // Ground surface is at H * GROUND_FRAC — must match GameScene.groundY
 const GROUND_FRAC = 0.82;
 
 // ── Player spritesheet frame layout ──────────────────────────────────────────
-// Source image: 1446×781 px, loaded as a plain image (not spritesheet)
-// All rows share: leftMargin = 35, stride = 170
-//
-// Row 1 — stand  ( 4 frames)  y =   0  w = 120  h = 200
-// Row 2 — run    ( 8 frames)  y = 193  w = 120  h = 200
-// Row 3 — jump   ( 7 frames)  y = 393  w = 120  h = 200
-// Row 4 — damage ( 4 frames)  y = 619  w = 120  h = 162
-const MARGIN   = 35;
-const STRIDE   = 170;
-const FRAME_H  = 200;  // stand/run row height; used for spawn Y calculation
-
-const ROWS = [
-  { prefix: "stand",  y:   0, count:  4, w: 140, h: 195 },
-  { prefix: "run",    y: 193, count:  8, w: 140, h: 195 },
-  { prefix: "jump",   y: 393, count:  7, w: 180, h: 195 },
-  { prefix: "damage", y: 619, count:  4, w: 140, h: 162 },
-] as const;
-
-function registerPlayerFrames(scene: Phaser.Scene): void {
-  const texture = scene.textures.get("player");
-  for (const { prefix, count } of ROWS) {
-    for (let i = 0; i < count; i++) {
-      texture.remove(`${prefix}_${i}`);
-    }
-  }
-  for (const { prefix, y, count, w, h } of ROWS) {
-    for (let i = 0; i < count; i++) {
-      texture.add(`${prefix}_${i}`, 0, MARGIN + i * STRIDE, y, w, h);
-    }
-  }
-}
+// Source image: 1423×752 px, 8 cols × 4 rows → frameWidth=177, frameHeight=188
+// stand  row 0: frames  0– 3
+// run    row 1: frames  8–15
+// jump   row 2: frames 16–23
+// damage row 3: frames 24–27
+const FRAME_H = 189; // spritesheet frame height; base for scale
 
 // ── Dust constants ────────────────────────────────────────────────────────────
 const DUST_FRAME_W = 16;
@@ -46,53 +20,54 @@ const DUST_FRAME_H = 16;
 const DUST_FRAMES  =  4;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type PlayerState = "idle" | "running" | "dead" | "finished";
-
-interface AnimDef {
-  key:    string;
-  prefix: string;
-  count:  number;
-  rate:   number;
-  repeat: number;
-}
+type PlayerState = "idle" | "running" | "damaged" | "dead" | "finished";
 
 // ── Player ────────────────────────────────────────────────────────────────────
 export class Player extends Phaser.Physics.Arcade.Sprite {
+  /** Current jump peak in px above ground — read by CoinManager to size arcs. */
+  public static jumpPeakPx = 0;
+
   private playerState: PlayerState = "idle";
-  private canDoubleJump = false;
-  private wasGrounded   = false;
+  private wasGrounded = false;
   private dustEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 
-  private lives       = 3;
+  private lives        = 3;
   private isInvincible = false;
   private flashTimer: Phaser.Time.TimerEvent | null = null;
-  private readonly INVINCIBLE_MS  = 1500;
+  readonly INVINCIBLE_MS  = 1500;
   private readonly FLASH_INTERVAL = 100;
+
+  private jumpVelocity: number;
 
   constructor(
     scene: Phaser.Scene,
     groundGroup: Phaser.Physics.Arcade.StaticGroup,
     groundY = Math.round(scene.scale.height * GROUND_FRAC),
   ) {
-    // Register named frames before super() — Phaser resolves 'stand_0' immediately
-    registerPlayerFrames(scene);
-
-    const scale = (scene.scale.height * 0.22) / 188;
+    const scale = (scene.scale.height * 0.22) / FRAME_H;
     const x     = Math.round(scene.scale.width * 0.15);
-    const y     = groundY - Math.round(FRAME_H * scale) + 5;
+    const y     = groundY; // origin is bottom-center, so y = ground level
 
-    super(scene, x, y, "player", "stand_0");
+    super(scene, x, y, "player", 0);
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
+
+    // Bottom-center origin: feet always sit exactly on groundY
+    this.setOrigin(0.5, 1);
+
+    this.jumpVelocity  = this.calcJumpVelocity();
+    Player.jumpPeakPx  = (this.jumpVelocity * this.jumpVelocity) / (2 * 1200);
 
     this.setScale(scale);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setGravityY(GRAVITY);
     body.setMaxVelocityY(1400);
-    body.setSize(90, 165);
-    body.setOffset(32, 20);
+    // Frame is 177w × 188h local pixels.
+    // Body: 60w (~34%), 155h (~82%). offset x=58, offset y=30
+    body.setSize(60, 155);
+    body.setOffset(58, 30);
 
     scene.physics.add.collider(this, groundGroup);
 
@@ -105,28 +80,41 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.createDustEmitter();
     this.registerInput();
 
-    this.play("player-stand");
+    this.safePlay("player-stand");
+  }
+
+  // ── Jump velocity ─────────────────────────────────────────────────────────
+
+  private calcJumpVelocity(): number {
+    const H      = this.scene.scale.height;
+    // Enemy height = H * 0.22; player needs to clear it with comfortable margin
+    const peakPx = H * 0.22 * 1.25;
+    return -Math.sqrt(2 * 1200 * peakPx);
   }
 
   // ── Resize ────────────────────────────────────────────────────────────────
 
   public rescale(): void {
     const H     = this.scene.scale.height;
-    const scale = (H * 0.22) / 188;
+    const scale = (H * 0.22) / FRAME_H;
     this.setScale(scale);
+    this.jumpVelocity  = this.calcJumpVelocity();
+    Player.jumpPeakPx  = (this.jumpVelocity * this.jumpVelocity) / (2 * 1200);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setSize(90, 165);
-    body.setOffset(32, 20);
+    body.setSize(60, 155);
+    body.setOffset(58, 30);
 
     const groundY = Math.round(H * 0.82);
-    this.setY(groundY - Math.round(200 * scale) + 5);
+    this.setY(groundY); // origin is bottom-center
   }
 
   // ── Lifecycle (called by GameScene.update) ────────────────────────────────
 
   tick(): void {
-    if (this.playerState === "dead" || this.playerState === "finished") return;
+    if (this.playerState === "dead"     ||
+        this.playerState === "finished" ||
+        this.playerState === "damaged") return;
 
     const body     = this.body as Phaser.Physics.Arcade.Body;
     const grounded = body.blocked.down;
@@ -139,7 +127,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     // Keep jump anim active for the full airborne window
     if (this.playerState === "running" && !grounded) {
       if (this.anims.currentAnim?.key !== "player-jump") {
-        this.play("player-jump", true);
+        this.safePlay("player-jump");
       }
     }
   }
@@ -148,23 +136,25 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   startRunning(): void {
     this.playerState = "running";
-    this.play("player-run", true);
+    this.safePlay("player-run");
   }
 
   die(): void {
     if (this.playerState === "dead") return;
     this.playerState = "dead";
-    this.play("player-dead", true);
+    this.safePlay("player-dead");
     (this.body as Phaser.Physics.Arcade.Body).setVelocityY(-280);
   }
 
   finish(): void {
     if (this.playerState === "finished") return;
     this.playerState = "finished";
-    this.play("player-run", true);
+    this.safePlay("player-stand");
   }
 
   getLives(): number { return this.lives; }
+
+  public getIsInvincible(): boolean { return this.isInvincible; }
 
   resetLives(): void {
     this.lives        = 3;
@@ -179,20 +169,33 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     this.lives--;
 
-    this.play("player-dead", true);
-    this.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-      if (this.lives > 0) this.play("player-run", true);
-    });
-
     if (this.lives <= 0) {
       this.isInvincible = true; // prevent double death
       return true;
     }
 
     this.isInvincible = true;
-    let flashCount    = 0;
-    const maxFlashes  = this.INVINCIBLE_MS / this.FLASH_INTERVAL;
+    this.playerState  = "damaged"; // prevent tick() from overriding the anim
 
+    // Play damage animation
+    this.safePlay("player-dead");
+
+    // Use delayedCall instead of ANIMATION_COMPLETE so it always fires
+    // regardless of animation state. 4 frames @ 10 fps = 400 ms.
+    this.scene.time.delayedCall(400, () => {
+      // Only return to running if still in damaged state
+      // (not dead/finished from a later hit)
+      if (this.playerState === "damaged") {
+        this.playerState = "running";
+        this.safePlay("player-run");
+      }
+    });
+
+    // Flash effect
+    let flashCount   = 0;
+    const maxFlashes = this.INVINCIBLE_MS / this.FLASH_INTERVAL;
+
+    this.flashTimer?.remove();
     this.flashTimer = this.scene.time.addEvent({
       delay:    this.FLASH_INTERVAL,
       repeat:   maxFlashes - 1,
@@ -217,20 +220,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
 
     if (body.blocked.down) {
-      body.setVelocityY(JUMP_VELOCITY);
-      this.canDoubleJump = true;
-      this.play("player-jump", true);
-    } else if (this.canDoubleJump) {
-      body.setVelocityY(JUMP_VELOCITY);
-      this.canDoubleJump = false;
-      this.play("player-jump", true);
+      body.setVelocityY(this.jumpVelocity);
+      this.safePlay("player-jump");
     }
   }
 
   private handleLanding(): void {
-    this.canDoubleJump = false;
-
     if (this.playerState === "running") {
+      if (!this.scene.anims.exists("player-run")) this.createAnimations();
       this.play("player-run", false);
     }
 
@@ -249,24 +246,33 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   // ── Animations ────────────────────────────────────────────────────────────
 
+  private safePlay(key: string): void {
+    // Recreate all animations if the requested one is missing
+    if (!this.scene.anims.exists(key)) {
+      this.createAnimations();
+    }
+    if (this.scene.anims.exists(key)) {
+      this.play(key, true);
+    }
+  }
+
   private createAnimations(): void {
+    if (!this.scene.textures.exists("player")) return;
+
     const anims = this.scene.anims;
 
-    const defs: AnimDef[] = [
-      { key: "player-stand", prefix: "stand",  count:  4, rate:  5, repeat: -1 },
-      { key: "player-run",   prefix: "run",    count:  5, rate:  5, repeat: -1 },
-      { key: "player-jump",  prefix: "jump",   count:  5, rate: 10, repeat:  0 },
-      { key: "player-dead",  prefix: "damage", count:  4, rate:  8, repeat:  0 },
+    const defs = [
+      { key: "player-stand", start:  0, end:  3, rate:  6, repeat: -1 },
+      { key: "player-run",   start:  8, end: 15, rate:  8, repeat: -1 },
+      { key: "player-jump",  start: 16, end: 23, rate:  5, repeat:  0 },
+      { key: "player-dead",  start: 24, end: 27, rate: 10, repeat:  0 },
     ];
 
-    for (const { key, prefix, count, rate, repeat } of defs) {
+    for (const { key, start, end, rate, repeat } of defs) {
       if (anims.exists(key)) anims.remove(key);
       anims.create({
         key,
-        frames: Array.from({ length: count }, (_, i) => ({
-          key:   "player",
-          frame: `${prefix}_${i}`,
-        })),
+        frames:    anims.generateFrameNumbers("player", { start, end }),
         frameRate: rate,
         repeat,
       });

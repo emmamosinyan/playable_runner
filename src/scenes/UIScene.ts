@@ -113,8 +113,12 @@ export class UIScene extends Phaser.Scene {
       }
 
       // Coin icon + text
-      this.coinIcon?.setPosition(W - 115, 28);
-      this.coinText?.setPosition(W - 96, 28);
+      const coinSize = Math.round(H * 0.07);
+      const iconX    = W - 16 - coinSize / 2;
+      const iconY    = coinSize / 2 + 8;
+      this.coinIcon?.setDisplaySize(coinSize, coinSize).setPosition(iconX, iconY);
+      this.coinText?.setPosition(iconX - coinSize / 2 - 8, iconY)
+                   .setFontSize(`${Math.round(coinSize * 0.55)}px`);
 
       // Footer — crossfade to swapped texture on orientation change
       if (this.footerImage) {
@@ -279,7 +283,11 @@ export class UIScene extends Phaser.Scene {
     const handlers: [string, (...args: unknown[]) => void][] = [
       ["game-started",   this.onGameStarted.bind(this)],
       ["score-update",   (p) => this.onScoreUpdate(p as ScorePayload)],
-      ["coin-collected", (p) => this.onCoinCollected(p as CoinPayload)],
+      ["coin-collected", (p) => {
+        const payload = p as CoinPayload;
+        this.onCoinCollected(payload);
+        this.flyCoinToHUD(payload.worldX, payload.worldY);
+      }],
       ["combo-reset",    this.onComboReset.bind(this)],
       ["lives-update",   (n) => { this.currentLives = n as number; this.drawHearts(n as number); }],
       ["game-over",      (p) => { this.isWin = false; this.onResult(p as ResultPayload); }],
@@ -297,19 +305,24 @@ export class UIScene extends Phaser.Scene {
   // ── HUD ───────────────────────────────────────────────────────────────────
 
   private buildHUD(W: number): void {
-    this.coinIcon = this.add.image(W - 115, 28, "coin", 0)
-      .setDisplaySize(32, 32)
+    const coinSize = Math.round(this.scale.height * 0.07);
+    const iconX    = W - 16 - coinSize / 2;
+    const iconY    = coinSize / 2 + 8;
+
+    this.coinIcon = this.add.image(iconX, iconY, "coin", 0)
+      .setFrame(0)
+      .setDisplaySize(coinSize, coinSize)
       .setDepth(50)
       .setScrollFactor(0)
       .setAlpha(0);
 
-    this.coinText = this.add.text(W - 96, 28, "× 0", {
+    this.coinText = this.add.text(iconX - coinSize / 2 - 8, iconY, "× 0", {
       fontFamily:      "monospace",
-      fontSize:        "20px",
+      fontSize:        `${Math.round(coinSize * 0.55)}px`,
       color:           "#ffffff",
       stroke:          "#000000",
       strokeThickness: 3,
-    }).setOrigin(0, 0.5).setDepth(50).setAlpha(0);
+    }).setOrigin(1, 0.5).setDepth(50).setAlpha(0);
 
     this.txtCombo = this.add.text(W / 2, 68, "×2 COMBO!", txt({
       fontSize:        "28px",
@@ -738,6 +751,42 @@ export class UIScene extends Phaser.Scene {
     } else {
       this.showGameOverScreen(p);
     }
+  }
+
+  // ── Coin fly-to-HUD animation ─────────────────────────────────────────────
+
+  private flyCoinToHUD(worldX: number, worldY: number): void {
+    const coinSize = Math.round(this.scale.height * 0.07);
+    const iconX    = this.scale.width - 16 - coinSize / 2;
+    const iconY    = coinSize / 2 + 8;
+
+    const flyIcon = this.add.image(worldX, worldY, "coin", 0)
+      .setFrame(0)
+      .setDisplaySize(coinSize, coinSize)
+      .setDepth(150)
+      .setScrollFactor(0);
+
+    this.tweens.add({
+      targets:       flyIcon,
+      x:             iconX,
+      y:             iconY,
+      displayWidth:  coinSize,
+      displayHeight: coinSize,
+      duration:      500,
+      ease:          "Cubic.easeIn",
+      onComplete: () => {
+        flyIcon.destroy();
+        const popSize = coinSize * 1.3;
+        this.tweens.add({
+          targets:       this.coinIcon,
+          displayWidth:  popSize,
+          displayHeight: popSize,
+          duration:      80,
+          yoyo:          true,
+          onComplete: () => this.coinIcon.setDisplaySize(coinSize, coinSize),
+        });
+      },
+    });
   }
 
   // ── Combo badge ───────────────────────────────────────────────────────────

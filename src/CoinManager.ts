@@ -1,11 +1,13 @@
 import Phaser from "phaser";
+import { Player } from "./Player";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const POOL_MAX = 15;
 
 interface ActiveCoin {
-  sprite:    Phaser.Physics.Arcade.Sprite;
-  collected: boolean;
+  sprite:      Phaser.Physics.Arcade.Sprite;
+  collected:   boolean;
+  heightRatio: number; // (groundY - coin.y) / groundY at spawn time
 }
 
 // ── CoinManager ───────────────────────────────────────────────────────────────
@@ -19,7 +21,7 @@ export class CoinManager {
   }
 
   private get coinDisplay(): number {
-    return Math.round(this.scene.scale.height * 0.07);
+    return Math.round(this.scene.scale.height * 0.1);
   }
 
   private speed           = 300;
@@ -33,7 +35,6 @@ export class CoinManager {
     this.scene  = scene;
     this.onMiss = onMiss;
     this.group  = scene.physics.add.staticGroup();
-    this.ensureAnimation();
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -59,6 +60,20 @@ export class CoinManager {
   freeze(): void { this.frozen = true; }
 
   stopSpawning(): void { this.spawningEnabled = false; }
+
+  repositionAll(): void {
+    const gY       = this.groundY;
+    const coinSize = this.coinDisplay;
+
+    for (const entry of this.active) {
+      if (entry.collected) continue;
+      const newY = gY - entry.heightRatio * gY;
+      entry.sprite.setY(newY).setDisplaySize(coinSize, coinSize);
+      const body = entry.sprite.body as Phaser.Physics.Arcade.StaticBody;
+      body.setSize(coinSize * 0.75, coinSize * 0.75);
+      body.reset(entry.sprite.x, newY);
+    }
+  }
 
   clearActive(): void {
     for (let i = this.active.length - 1; i >= 0; i--) {
@@ -108,32 +123,44 @@ export class CoinManager {
   // ── Public arc spawn (called by ObstacleManager when a ball is placed) ───
 
   spawnArc(centerX: number, groundY: number): void {
-    const count     = 5;
-    const coinSize  = this.coinDisplay;
-    const gap       = 12;
-    const spacing   = coinSize + gap;
-    const arcWidth  = spacing * (count - 1);
-    const arcHeight = 130;
-    const startX    = centerX - arcWidth / 2;
+    const count    = 5;
+    const coinSize = this.coinDisplay;
+    const gap      = 8;
+    const spacing  = coinSize + gap;
+    const arcWidth = spacing * (count - 1);
+
+    const jumpPeak  = Player.jumpPeakPx || 200;
+    const arcHeight = Math.round(jumpPeak * 0.95);
+
+    // Ball and arc share the same center X (both already off-screen).
+    const startX = centerX - arcWidth / 2;
 
     for (let i = 0; i < count; i++) {
       const t = i / (count - 1);
       const x = startX + i * spacing;
-      const y = groundY - arcHeight * Math.sin(t * Math.PI) - coinSize / 2;
+      const y = groundY
+        - arcHeight * Math.sin(t * Math.PI)
+        - coinSize / 2;
       this.spawnCoinAt(x, y);
     }
   }
 
   private spawnCoinAt(x: number, y: number): void {
     const sprite = this.acquire();
-    sprite.setPosition(x, y).setDisplaySize(this.coinDisplay, this.coinDisplay);
+    const gY     = this.groundY;
+    const ratio  = gY > 0 ? (gY - y) / gY : 0;
+
+    sprite.setPosition(x, y)
+      .setDisplaySize(this.coinDisplay, this.coinDisplay)
+      .setFrame(0);
 
     const body = sprite.body as Phaser.Physics.Arcade.StaticBody;
     body.setSize(this.coinDisplay * 0.75, this.coinDisplay * 0.75);
     body.reset(x, y);
     body.enable = true;
 
-    sprite.play("coin-spin", true);
+    const entry = this.active[this.active.length - 1];
+    if (entry) entry.heightRatio = ratio;
   }
 
   // ── Pool ──────────────────────────────────────────────────────────────────
@@ -143,7 +170,7 @@ export class CoinManager {
       const sprite = this.pool.pop()!;
       sprite.setActive(true).setVisible(true);
       (sprite.body as Phaser.Physics.Arcade.StaticBody).enable = true;
-      this.active.push({ sprite, collected: false });
+      this.active.push({ sprite, collected: false, heightRatio: 0 });
       return sprite;
     }
     const sprite = this.group.create(
@@ -157,16 +184,4 @@ export class CoinManager {
     this.recycleCoin(sprite);
   }
 
-  // ── Animation ─────────────────────────────────────────────────────────────
-
-  private ensureAnimation(): void {
-    if (this.scene.anims.exists("coin-spin")) return;
-    // coin spritesheet: 5 cols × 2 rows, 8 frames (5 face-on→edge + 3 edge→face)
-    this.scene.anims.create({
-      key:       "coin-spin",
-      frames:    this.scene.anims.generateFrameNumbers("coin", { start: 0, end: 7 }),
-      frameRate: 12,
-      repeat:    -1,
-    });
-  }
 }
